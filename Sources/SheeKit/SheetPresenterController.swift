@@ -57,19 +57,26 @@ final class SheetPresenterController: UIViewController {
 
     weak var presenterProxy: UIViewController?
 
+    override func willMove(toParent parent: UIViewController?) {
+        super.willMove(toParent: parent)
+        /// Fix of https://github.com/edudnyk/SheeKit/issues/8 - the NavigationView considers sheet presenter
+        /// as a displayable detail controller of navigation controller / split controller.
+        if parent is UINavigationController || parent is UITabBarController || parent is UISplitViewController || parent is UIPageViewController {
+            presenterProxy = parent
+        } else if parent != nil {
+            presenterProxy = self
+        }
+    }
+
     override func didMove(toParent parent: UIViewController?) {
         super.didMove(toParent: parent)
         /// Fix of https://github.com/edudnyk/SheeKit/issues/8 - the NavigationView considers sheet presenter
         /// as a displayable detail controller of navigation controller / split controller.
         if parent is UINavigationController || parent is UITabBarController || parent is UISplitViewController || parent is UIPageViewController {
-            presenterProxy = parent
             willMove(toParent: nil)
             removeFromParent()
-        } else if parent != nil {
-            presenterProxy = self
-        } else {
-            guard parent == nil,
-                  let proxy = presenterProxy,
+        } else if parent == nil {
+            guard let proxy = presenterProxy,
                   proxy != self,
                   proxy.isViewLoaded, isViewLoaded,
                   view.isDescendant(of: proxy.view)
@@ -140,13 +147,14 @@ struct SheetPresenterControllerRepresentable<Item>: UIViewControllerRepresentabl
             presentingViewController.dismiss(animated: true, completion: coordinator.performNextPresentationIfNeeded)
             onDismiss?()
         }
-        if item != nil,
-           !isCurrentItemSheet {
+        if item != nil, !isCurrentItemSheet {
             presenter.scheduleOnAppear { [weak coordinator, weak presenter] in
                 guard let item = item,
                       let coordinator = coordinator,
                       coordinator.sheetHost?.itemId != item.id,
-                      let presenter = presenter else { return }
+                      let presenter = presenter else {
+                    return
+                }
                 if presenter.parent == nil,
                    let superview = presenter.view.superview,
                    let parent = superview.nextResponderViewController,
@@ -164,19 +172,23 @@ struct SheetPresenterControllerRepresentable<Item>: UIViewControllerRepresentabl
                     let sheetHost = sheetHostProvider(coordinator, presenter, item, dismissAction)
                     sheetHost.onDismiss = onDismiss
                     sheetHost.presentationController?.delegate = coordinator
-                    guard let presenterProxy = presenter.presenterProxy else {
-                        // fatalError("no presenter")
-                        return
+                    #if true
+                    if presenter.presenterProxy == nil {
+                        print("presenter.presenterProxy is nil")
                     }
+                    let presenterProxy = presenter.presenterProxy ?? presenter
                     var controllerToPresentFrom: UIViewController = presenterProxy
                     while let presented = controllerToPresentFrom.presentedViewController {
                         controllerToPresentFrom = presented
                     }
                     controllerToPresentFrom.present(sheetHost, animated: true)
+                    #else
+                    presenter.presenterProxy?.present(sheetHost, animated: true)
+                    #endif
                 }
                 if let previousSheetHost = coordinator.sheetHost,
-                   previousSheetHost.itemId == nil,
-                   previousSheetHost.presentingViewController != nil {
+                    previousSheetHost.itemId == nil,
+                    previousSheetHost.presentingViewController != nil {
                     coordinator.nextPresentation = worker
                 } else {
                     coordinator.nextPresentation = nil
